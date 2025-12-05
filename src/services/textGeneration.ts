@@ -116,32 +116,38 @@ export class TextGenerationService {
    * @param prompt 用户输入的提示词
    * @param model 使用的模型名称
    * @param enableThinking 是否启用深度思考模式
-   * @param supportsVision 模型是否支持视觉能力（外部传入）
+   * @param imageUrls 直接传入的图片URL数组（从附件获取）
    * @returns 生成的文本内容和 token 使用量
    */
   async generateTextWithUsage(
     prompt: string, 
     model: string = 'qwen-plus', 
     enableThinking: boolean = false,
-    supportsVision?: boolean
+    imageUrls?: string[]
   ): Promise<{ content: string; totalTokens: number }> {
     try {
-      // 提取图片URL
-      const { images, text } = TextGenerationService.extractImageUrls(prompt);
+      // 获取模型信息
+      const modelInfo = TextGenerationService.getSupportedModels().find(m => m.value === model);
+      const modelSupportsVision = modelInfo?.supportsVision || false;
+      
+      // 从prompt中提取图片URL
+      const { images: promptImages, text: cleanedPrompt } = TextGenerationService.extractImageUrls(prompt);
+      
+      // 合并附件图片和prompt中的图片
+      const allImages = [...(imageUrls || []), ...promptImages];
       
       // 构建消息内容
-      let userContent: any = text;
-      
-      // 获取模型信息以判断是否支持视觉
-      const modelInfo = TextGenerationService.getSupportedModels().find(m => m.value === model);
-      const modelSupportsVision = supportsVision !== undefined ? supportsVision : (modelInfo?.supportsVision || false);
+      let userContent: any = cleanedPrompt;
       
       // 如果有图片且模型支持视觉，构建多模态消息
-      if (images.length > 0 && modelSupportsVision) {
+      if (allImages.length > 0 && modelSupportsVision) {
         userContent = [
-          ...images.map(img => ({ type: "image_url", image_url: { url: img } })),
-          { type: "text", text }
+          ...allImages.map(img => ({ type: "image_url", image_url: { url: img } })),
+          { type: "text", text: cleanedPrompt }
         ];
+      } else if (allImages.length > 0 && !modelSupportsVision) {
+        // 如果有图片但模型不支持视觉，在prompt中提示
+        userContent = `${cleanedPrompt}\n\n注意：检测到 ${allImages.length} 张图片（附件${imageUrls?.length || 0}张，文本中${promptImages.length}张），但当前模型不支持图片理解。请使用支持视觉的模型（如Qwen3-VL系列）。`;
       }
       
       const requestBody: any = {
@@ -171,11 +177,19 @@ export class TextGenerationService {
           content = `思考过程：\n${thinking}\n\n回复：\n${content}`;
         }
         
-        // 如果检测到图片且模型支持视觉，在回复中注明
-        if (images.length > 0 && modelSupportsVision) {
-          content = `[已识别并处理 ${images.length} 张图片]\n\n${content}`;
-        } else if (images.length > 0 && !modelSupportsVision) {
-          content = `[注意：检测到 ${images.length} 张图片链接，但当前模型不支持图片理解]\n\n${content}`;
+        // 如果处理了图片，在回复中注明
+        if (allImages.length > 0 && modelSupportsVision) {
+          const attachmentCount = imageUrls?.length || 0;
+          const promptImageCount = promptImages.length;
+          let imageInfo = '';
+          if (attachmentCount > 0 && promptImageCount > 0) {
+            imageInfo = `[已识别并处理 ${allImages.length} 张图片（附件${attachmentCount}张，文本中${promptImageCount}张）]`;
+          } else if (attachmentCount > 0) {
+            imageInfo = `[已识别并处理 ${attachmentCount} 张附件图片]`;
+          } else if (promptImageCount > 0) {
+            imageInfo = `[已识别并处理 ${promptImageCount} 张图片链接]`;
+          }
+          content = `${imageInfo}\n\n${content}`;
         }
         
         return {

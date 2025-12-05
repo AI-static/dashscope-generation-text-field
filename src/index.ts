@@ -88,7 +88,7 @@ basekit.addField({
       label: t('prompt'),
       component: FieldComponent.Input,
       props: {
-        placeholder: '请输入您的问题或要求'
+        placeholder: '请输入您的问题或要求（支持直接输入图片URL，如:https://xxx.jpg）'
       },
       validator: {
         required: true,
@@ -181,37 +181,26 @@ basekit.addField({
       // 处理深度思考模式开关（只有模型支持才启用）
       const thinkingEnabled = supportsThinking && (enableThinking === true || enableThinking === 'true');
       
-      // 处理图片附件（只有模型支持视觉才添加图片）
-      let fullPrompt = prompt;
-      // FieldSelect返回的是附件数据格式
-      let imageUrlStr = '';
+      // 处理图片附件
+      let imageUrls: string[] = [];
       if (imageUrl && Array.isArray(imageUrl) && imageUrl.length > 0) {
         // 处理附件数组格式：[{ name: string; size: number; type: string; tmp_url: string }]
         const imageAttachments = imageUrl.filter(att => 
           att.type && att.type.startsWith('image/') && att.tmp_url
         );
-        if (imageAttachments.length > 0) {
-          imageUrlStr = imageAttachments[0].tmp_url;
-        }
+        imageUrls = imageAttachments.map(att => att.tmp_url);
       } else if (imageUrl && typeof imageUrl === 'object' && imageUrl.tmp_url) {
         // 处理单个附件对象
         if (imageUrl.type && imageUrl.type.startsWith('image/')) {
-          imageUrlStr = imageUrl.tmp_url;
+          imageUrls = [imageUrl.tmp_url];
         }
-      }
-      
-      if (imageUrlStr && supportsVision) {
-        fullPrompt = `${prompt}\n\n图片附件：${imageUrlStr}`;
-      } else if (imageUrlStr && !supportsVision) {
-        // 如果模型不支持视觉，在prompt中提示用户
-        fullPrompt = `${prompt}\n\n注意：当前模型不支持图片理解，请使用支持视觉的模型（如Qwen3-VL系列）来处理图片。`;
       }
       
       // 创建文本生成服务
       const textService = new TextGenerationService(apiKey);
       
       // 生成文本（带 token 使用量和思考模式）
-      const result = await textService.generateTextWithUsage(fullPrompt, modelValue, thinkingEnabled, supportsVision);
+      const result = await textService.generateTextWithUsage(prompt, modelValue, thinkingEnabled, imageUrls);
       
       const responseTime = Date.now() - startTime;
 
