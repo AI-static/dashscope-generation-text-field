@@ -23,37 +23,55 @@ export class TextGenerationService {
   /**
    * 获取支持的文本生成模型列表
    */
-  static getSupportedModels(): Array<{ value: string; name: string; description: string }> {
+  static getSupportedModels(): Array<{ 
+    value: string; 
+    name: string; 
+    description: string;
+    supportsThinking?: boolean;
+    supportsVision?: boolean;
+  }> {
     return [
       {
         value: 'qwen-turbo',
         name: 'Qwen Turbo',
-        description: '快速响应，适合日常对话'
+        description: '快速响应，适合日常对话',
+        supportsThinking: false,
+        supportsVision: false
       },
       {
         value: 'qwen-plus',
         name: 'Qwen Plus',
-        description: '均衡性能，适合大多数场景'
+        description: '均衡性能，适合大多数场景',
+        supportsThinking: false,
+        supportsVision: false
       },
       {
         value: 'qwen-max',
         name: 'Qwen Max',
-        description: '最强性能，适合复杂任务'
+        description: '最强性能，适合复杂任务',
+        supportsThinking: true,
+        supportsVision: false
       },
       {
         value: 'qwen-long',
         name: 'Qwen Long',
-        description: '长文本处理，支持超长上下文'
+        description: '长文本处理，支持超长上下文',
+        supportsThinking: false,
+        supportsVision: false
       },
       {
         value: 'qwen3-vl-plus',
         name: 'Qwen3-VL-Plus',
-        description: '视觉语言模型，支持图片理解'
+        description: '视觉语言模型，支持图片理解',
+        supportsThinking: false,
+        supportsVision: true
       },
       {
         value: 'qwen3-vl-flash',
         name: 'Qwen3-VL-Flash',
-        description: 'Qwen3系列小尺寸视觉理解模型，支持思考模式与视觉理解'
+        description: 'Qwen3系列小尺寸视觉理解模型，支持思考模式与视觉理解',
+        supportsThinking: true,
+        supportsVision: true
       }
     ];
   }
@@ -98,9 +116,15 @@ export class TextGenerationService {
    * @param prompt 用户输入的提示词
    * @param model 使用的模型名称
    * @param enableThinking 是否启用深度思考模式
+   * @param supportsVision 模型是否支持视觉能力（外部传入）
    * @returns 生成的文本内容和 token 使用量
    */
-  async generateTextWithUsage(prompt: string, model: string = 'qwen-plus', enableThinking: boolean = false): Promise<{ content: string; totalTokens: number }> {
+  async generateTextWithUsage(
+    prompt: string, 
+    model: string = 'qwen-plus', 
+    enableThinking: boolean = false,
+    supportsVision?: boolean
+  ): Promise<{ content: string; totalTokens: number }> {
     try {
       // 提取图片URL
       const { images, text } = TextGenerationService.extractImageUrls(prompt);
@@ -108,8 +132,12 @@ export class TextGenerationService {
       // 构建消息内容
       let userContent: any = text;
       
-      // 如果有图片且是多模态模型，构建多模态消息
-      if (images.length > 0 && (model.includes('vl') || model.includes('vision'))) {
+      // 获取模型信息以判断是否支持视觉
+      const modelInfo = TextGenerationService.getSupportedModels().find(m => m.value === model);
+      const modelSupportsVision = supportsVision !== undefined ? supportsVision : (modelInfo?.supportsVision || false);
+      
+      // 如果有图片且模型支持视觉，构建多模态消息
+      if (images.length > 0 && modelSupportsVision) {
         userContent = [
           ...images.map(img => ({ type: "image_url", image_url: { url: img } })),
           { type: "text", text }
@@ -143,9 +171,11 @@ export class TextGenerationService {
           content = `思考过程：\n${thinking}\n\n回复：\n${content}`;
         }
         
-        // 如果检测到图片，在回复中注明
-        if (images.length > 0) {
-          content = `[已识别 ${images.length} 张图片]\n\n${content}`;
+        // 如果检测到图片且模型支持视觉，在回复中注明
+        if (images.length > 0 && modelSupportsVision) {
+          content = `[已识别并处理 ${images.length} 张图片]\n\n${content}`;
+        } else if (images.length > 0 && !modelSupportsVision) {
+          content = `[注意：检测到 ${images.length} 张图片链接，但当前模型不支持图片理解]\n\n${content}`;
         }
         
         return {
